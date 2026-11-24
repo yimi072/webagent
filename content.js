@@ -725,9 +725,15 @@
   const DEFAULT_BRIDGE_TOKEN = "";
   const DEFAULT_WORKSPACE = "";
 
+  // Clear any legacy token from storage to ensure pure unauthenticated loopback access
+  try {
+    GM_setValue("webagent_lb_token", "");
+    GM_setValue("nexus_lb_token", "");
+  } catch {}
+
   const CONFIG = {
-    nexusUrl: GM_getValue("webagent_bridge_url", GM_getValue("nexus_bridge_url", "http://127.0.0.1:18080")),
-    token: GM_getValue("webagent_lb_token", GM_getValue("nexus_lb_token", DEFAULT_BRIDGE_TOKEN)),
+    nexusUrl: GM_getValue("webagent_bridge_url", GM_getValue("nexus_bridge_url", "http://127.0.0.1:8787")),
+    token: "",
     workspace: GM_getValue("webagent_workspace_dir", GM_getValue("nexus_workspace_dir", "")),
     projectId: GM_getValue("webagent_project_id", GM_getValue("nexus_project_id", "")),
     language: (function() {
@@ -864,7 +870,7 @@
       customPromptPlaceholder: "e.g. Focus on architectural decisions and code snippets...",
       defaultTagsLabel: "Default Knowledge Tags (comma-separated)",
       defaultTagsPlaceholder: "e.g. tech, reverse, architecture",
-      advSettingsTitle: "Advanced Settings (Token / Port)",
+      advSettingsTitle: "Advanced Settings (Server Address)",
       tokenLabel: "WebAgent Client Token",
       tokenPlaceholder: "Leave empty if local authentication is disabled",
       urlLabel: "WebAgent Server URL (default http://127.0.0.1:18080)",
@@ -1057,7 +1063,7 @@
       customPromptPlaceholder: "例如：重点提取算法推导和架构决策，过滤引流广告...",
       defaultTagsLabel: "默认知识库标签 (逗号分隔)",
       defaultTagsPlaceholder: "例如：技术, 逆向, 架构",
-      advSettingsTitle: "高级配置 (Token / 端口)",
+      advSettingsTitle: "高级配置 (服务端地址)",
       tokenLabel: "WebAgent 客户端令牌 (Token)",
       tokenPlaceholder: "在 WebAgent 客户端「访问令牌」生成后粘贴 (未启用认证可留空)",
       urlLabel: "WebAgent 服务端地址 (默认 http://127.0.0.1:18080)",
@@ -1250,7 +1256,7 @@
       customPromptPlaceholder: "例: アルゴリズムの導出とアーキテクチャ設計を優先して抽出...",
       defaultTagsLabel: "デフォルトタグ (カンマ区切り)",
       defaultTagsPlaceholder: "例: 技術, リバース, アーキテクチャ",
-      advSettingsTitle: "高度な設定 (トークン / ポート)",
+      advSettingsTitle: "高度な設定 (サーバーアドレス)",
       tokenLabel: "WebAgent クライアントトークン",
       tokenPlaceholder: "認証が無効な場合は空欄のままで構いません",
       urlLabel: "WebAgent サーバーアドレス (デフォルト: http://127.0.0.1:18080)",
@@ -1443,7 +1449,7 @@
       customPromptPlaceholder: "z.B. Architekturentscheidungen und Codefragmente priorisieren...",
       defaultTagsLabel: "Standard-Tags (kommagetrennt)",
       defaultTagsPlaceholder: "z.B. technik, reverse, architektur",
-      advSettingsTitle: "Erweiterte Einstellungen (Token / Port)",
+      advSettingsTitle: "Erweiterte Einstellungen (Server-Adresse)",
       tokenLabel: "WebAgent Client-Token",
       tokenPlaceholder: "Leer lassen, falls Authentifizierung deaktiviert ist",
       urlLabel: "WebAgent Server-Adresse (Standard http://127.0.0.1:18080)",
@@ -5600,10 +5606,6 @@ Collaboration Guidelines:
               </div>
               <div class="nexus-adv-body" id="nexus-adv-body">
                 <div class="nexus-field">
-                  <label class="nexus-label" id="nexus-lbl-token">${t('tokenLabel')}</label>
-                  <input class="nexus-input" type="password" id="nexus-cfg-token" placeholder="${t('tokenPlaceholder')}" value="${CONFIG.token}" />
-                </div>
-                <div class="nexus-field">
                   <label class="nexus-label" id="nexus-lbl-url">${t('urlLabel')}</label>
                   <input class="nexus-input" type="text" id="nexus-cfg-url" value="${CONFIG.nexusUrl}" />
                 </div>
@@ -6663,10 +6665,6 @@ Collaboration Guidelines:
 
     const lblAdv = drawerEl ? drawerEl.querySelector("#nexus-adv-toggle span:first-child") : null;
     if (lblAdv) setSafeHTML(lblAdv, `${nxSvg("gear", "nexus-ui-icon")}${t('advSettingsTitle')}`);
-    const lblToken = drawerEl ? drawerEl.querySelector("#nexus-lbl-token") : null;
-    if (lblToken) lblToken.innerText = t('tokenLabel');
-    const txtToken = drawerEl ? drawerEl.querySelector("#nexus-cfg-token") : null;
-    if (txtToken) txtToken.placeholder = t('tokenPlaceholder');
     const lblUrl = drawerEl ? drawerEl.querySelector("#nexus-lbl-url") : null;
     if (lblUrl) lblUrl.innerText = t('urlLabel');
 
