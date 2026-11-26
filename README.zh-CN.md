@@ -130,6 +130,8 @@ git clone https://github.com/ysunyang4/webagent.git
 
 如果 **WebAgent** 对您的日常工作流或开发效率有所帮助，欢迎自愿赞助支持本项目的持续开源维护 ☕！所有赞助均为自愿行为，不附带任何额外功能、专属服务或优先支持特权。
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/ryansun)
+
 > 💼 **企业赞助与商业授权 (Enterprise & Licensing)**  
 > 如需企业级赞助、定制智能体集成，或商业闭源授权（豁免 GPL-3.0 开源传染义务的商业双重许可），欢迎通过 [GitHub Issues](https://github.com/ysunyang4/webagent/issues) 或邮件联系：`ysunyang4@gmail.com`。
 
@@ -155,6 +157,12 @@ git clone https://github.com/ysunyang4/webagent.git
         <code>UID: 1292741809</code><br />
         <span style="font-size: 11px; color: #888;">币安支付 (Binance Pay) · Ryan Sunv</span>
       </td>
+      <td align="center" width="220">
+        <img src="assets/ko-fi-qr.png" width="180" alt="Ko-fi" style="border-radius: 12px;" /><br />
+        <br />
+        <b>Ko-fi</b><br />
+        <span style="font-size: 11px; color: #888;">Ko-fi 扫码请作者喝咖啡</span>
+      </td>
     </tr>
   </table>
 </div>
@@ -167,6 +175,7 @@ git clone https://github.com/ysunyang4/webagent.git
 | **加密货币 (USDT 链上直转)** | **地址: `TPRrDW8DGsrDmcnWvanTbFz7XEJuywu21i`** · 网络: **TRON (TRC-20)** | 用任何钱包或交易所转出时，选 **TRON (TRC-20)** 网络即可 |
 | **微信赞赏** | 微信创作者官方赞赏码 | 仅通过上方官方展示的图片扫码 |
 | **支付宝赞赏** | 支付宝官方赞赏码 | 仅通过上方官方展示的图片扫码 |
+| **Ko-fi** | [https://ko-fi.com/ryansun](https://ko-fi.com/ryansun) | 通过 Ko-fi 请作者喝杯咖啡 (PayPal) |
 
 > ☕ **每一份打赏，无论多少，对我都是莫大的鼓励。** 您的支持会帮助我把这个项目做得更加完善、更加强大。感谢您陪它一起成长。
 
