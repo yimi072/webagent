@@ -3828,22 +3828,41 @@
             );
             CREATE TABLE IF NOT EXISTS session_handoffs (
               handle TEXT PRIMARY KEY,
-              conversation_id TEXT,
-              checkpoint_id TEXT,
-              serialized_state TEXT NOT NULL,
-              ttl_expires_at INTEGER NOT NULL,
-              created_at INTEGER NOT NULL
+              title TEXT NOT NULL,
+              summary TEXT NOT NULL,
+              key_decisions TEXT NOT NULL DEFAULT '[]',
+              active_files TEXT NOT NULL DEFAULT '[]',
+              pending_tasks TEXT NOT NULL DEFAULT '[]',
+              raw_context TEXT,
+              token_count INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL,
+              expires_at INTEGER NOT NULL,
+              accessed_at INTEGER,
+              access_count INTEGER NOT NULL DEFAULT 0,
+              status TEXT NOT NULL DEFAULT 'ACTIVE'
             );
           \`);
 
-          // 敏感信息脱敏
-          function redactSecrets(text) {
-            if (typeof text !== 'string') return text;
-            return text
-              .replace(/Bearer\\s+[a-zA-Z0-9._-]{20,}/gi, 'Bearer [REDACTED_BEARER_TOKEN]')
-              .replace(/sk-[a-zA-Z0-9_-]{20,}/g, '[REDACTED_API_KEY]')
-              .replace(/ghp_[a-zA-Z0-9]{30,}/g, '[REDACTED_GITHUB_TOKEN]')
-              .replace(/password\\s*[:=]\\s*['"][^'"]+['"]/gi, 'password: "[REDACTED_PASSWORD]"');
+          // 敏感信息脱敏（带统计回执）
+          function redactSecretsWithStats(text) {
+            if (typeof text !== 'string') return { sanitized: text, redacted: false, redactedCount: 0 };
+            let redactedCount = 0;
+            const patterns = [
+              [/Bearer\\s+[a-zA-Z0-9._-]{20,}/gi, 'Bearer [REDACTED_BEARER_TOKEN]'],
+              [/sk-[a-zA-Z0-9_-]{20,}/g, '[REDACTED_API_KEY]'],
+              [/lb_[a-zA-Z0-9_-]{16,}/gi, '[REDACTED_LB_TOKEN]'],
+              [/lbr_[a-zA-Z0-9_-]{16,}/gi, '[REDACTED_LBR_TOKEN]'],
+              [/ghp_[a-zA-Z0-9]{30,}/g, '[REDACTED_GITHUB_TOKEN]'],
+              [/password\\s*[:=]\\s*['"][^'"]+['"]/gi, 'password: "[REDACTED_PASSWORD]"'],
+            ];
+            let out = text;
+            for (const [re, rep] of patterns) {
+              out = out.replace(re, () => {
+                redactedCount++;
+                return rep;
+              });
+            }
+            return { sanitized: out, redacted: redactedCount > 0, redactedCount };
           }
 
           const rawAction = ${JSON.stringify(cleanTool.replace(/^nexus_/, ""))};
@@ -3852,7 +3871,8 @@
 
           if (rawAction === "memory_set" || rawAction === "set") {
             const key = actionArgs.key || actionArgs.name || "unnamed_memory";
-            const content = redactSecrets(actionArgs.content || actionArgs.value || "");
+            const redaction = redactSecretsWithStats(actionArgs.content || actionArgs.value || "");
+            const content = redaction.sanitized;
             const type = (actionArgs.type || "FACT").toUpperCase();
             const scope = (actionArgs.scope || "GLOBAL").toUpperCase();
             const scopeId = actionArgs.scope_id || actionArgs.scopeId || null;
@@ -3860,17 +3880,23 @@
             const confidence = Math.max(0, Math.min(1, parseFloat(actionArgs.confidence) || 1.0));
             const tags = JSON.stringify(Array.isArray(actionArgs.tags) ? actionArgs.tags : []);
 
-            const existing = db.prepare('SELECT id, version FROM memories WHERE key = ? AND scope = ? LIMIT 1').get(key, scope);
+            const existing = db.prepare('SELECT id, version, content, type, importance FROM memories WHERE key = ? AND scope = ? LIMIT 1').get(key, scope);
             let id = existing ? existing.id : 'mem_' + crypto.randomUUID();
-            let version = existing ? (existing.version + 1) : 1;
+            let version = existing ? existing.version : 1;
+            let receiptAction = existing ? "updated" : "created";
 
             if (existing) {
-              const stmt = db.prepare(\`
-                UPDATE memories
-                SET content = ?, type = ?, scope_id = ?, importance = ?, confidence = ?, tags = ?, version = ?, updated_at = ?
-                WHERE id = ?
-              \`);
-              stmt.run(content, type, scopeId, importance, confidence, tags, version, now, id);
+              if (existing.content === content && existing.type === type && existing.importance === importance) {
+                receiptAction = "unchanged";
+              } else {
+                version = existing.version + 1;
+                const stmt = db.prepare(\`
+                  UPDATE memories
+                  SET content = ?, type = ?, scope_id = ?, importance = ?, confidence = ?, tags = ?, version = ?, updated_at = ?, status = 'ACTIVE'
+                  WHERE id = ?
+                \`);
+                stmt.run(content, type, scopeId, importance, confidence, tags, version, now, id);
+              }
             } else {
               const stmt = db.prepare(\`
                 INSERT INTO memories (id, key, content, type, scope, scope_id, importance, confidence, tags, status, version, created_at, updated_at)
@@ -3878,9 +3904,62 @@
               \`);
               stmt.run(id, key, content, type, scope, scopeId, importance, confidence, tags, now, now);
             }
-            console.log(JSON.stringify({ success: true, action: "set", id, key, scope, version }));
+            console.log(JSON.stringify({
+              success: true,
+              action: receiptAction,
+              id,
+              key,
+              scope,
+              version,
+              previousVersion: existing ? existing.version : null,
+              redacted: redaction.redacted,
+              redactedCount: redaction.redactedCount,
+            }));
 
-          } else if (rawAction === "memory_recall" || rawAction === "recall") {
+          } else if (rawAction === "memory_get" || rawAction === "get") {
+            const id = actionArgs.id;
+            const key = actionArgs.key || actionArgs.name;
+            const scope = actionArgs.scope ? actionArgs.scope.toUpperCase() : null;
+            let row = null;
+            if (id) {
+              row = db.prepare("SELECT * FROM memories WHERE id = ? LIMIT 1").get(id);
+            } else if (key && scope) {
+              row = db.prepare("SELECT * FROM memories WHERE key = ? AND scope = ? AND status = 'ACTIVE' ORDER BY updated_at DESC LIMIT 1").get(key, scope);
+            } else if (key) {
+              row = db.prepare("SELECT * FROM memories WHERE key = ? AND status = 'ACTIVE' ORDER BY updated_at DESC LIMIT 1").get(key);
+            }
+            console.log(JSON.stringify({ success: true, found: !!row, memory: row || null }));
+
+          } else if (rawAction === "memory_bootstrap" || rawAction === "bootstrap") {
+            const minImportance = Math.max(1, Math.min(10, parseInt(actionArgs.minImportance, 10) || 7));
+            const maxChars = Math.max(400, (parseInt(actionArgs.maxTokens, 10) || 700) * 4);
+            const scopeId = actionArgs.scope_id || actionArgs.scopeId || null;
+            const globalRows = db.prepare("SELECT key, type, importance, content FROM memories WHERE scope = 'GLOBAL' AND status = 'ACTIVE' AND importance >= ? ORDER BY importance DESC, updated_at DESC LIMIT 20").all(minImportance);
+            const projectRows = scopeId
+              ? db.prepare("SELECT key, type, importance, content FROM memories WHERE scope = 'PROJECT' AND scope_id = ? AND status = 'ACTIVE' AND importance >= ? ORDER BY importance DESC, updated_at DESC LIMIT 25").all(scopeId, minImportance)
+              : db.prepare("SELECT key, type, importance, content FROM memories WHERE scope = 'PROJECT' AND status = 'ACTIVE' AND importance >= ? ORDER BY importance DESC, updated_at DESC LIMIT 25").all(minImportance);
+            const lines = [];
+            const pushGroup = (title, rows) => {
+              if (!rows.length) return;
+              lines.push(title);
+              for (const r of rows) {
+                const line = '- [' + r.type + '|' + r.importance + '] ' + r.key + ': ' + String(r.content || '').replace(/\\s+/g, ' ').trim().slice(0, 180);
+                if (lines.join('\\n').length + line.length + 2 > maxChars) break;
+                lines.push(line);
+              }
+            };
+            pushGroup('## GLOBAL', globalRows);
+            pushGroup('## PROJECT', projectRows);
+            const digest = lines.join('\\n') || ('No active memories with importance >= ' + minImportance);
+            console.log(JSON.stringify({
+              success: true,
+              globalCount: globalRows.length,
+              projectCount: projectRows.length,
+              tokenEstimate: Math.ceil(digest.length / 4),
+              digest,
+            }));
+
+          } else if (rawAction === "memory_recall" || rawAction === "recall" || rawAction === "memory_search" || rawAction === "search") {
             const query = (actionArgs.query || actionArgs.q || actionArgs.key || "").toLowerCase();
             const scope = actionArgs.scope ? actionArgs.scope.toUpperCase() : null;
             const limit = Math.min(20, Math.max(1, parseInt(actionArgs.limit, 10) || 5));
@@ -3916,19 +3995,39 @@
 
           } else if (rawAction === "session_handoff" || rawAction === "handoff") {
             const handle = 'nx-' + crypto.randomBytes(4).toString('hex');
-            const state = JSON.stringify(actionArgs);
-            const ttl = now + (24 * 3600 * 1000);
-            db.prepare("INSERT INTO session_handoffs (handle, conversation_id, checkpoint_id, serialized_state, ttl_expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-              .run(handle, actionArgs.conversation_id || null, actionArgs.checkpoint_id || null, state, ttl, now);
-            console.log(JSON.stringify({ success: true, handle, expires_in: "24h" }));
+            const title = redactSecretsWithStats(String(actionArgs.title || actionArgs.checkpoint_id || "Session Handoff")).sanitized;
+            const summary = redactSecretsWithStats(String(actionArgs.summary || JSON.stringify(actionArgs))).sanitized;
+            const keyDecisions = JSON.stringify(Array.isArray(actionArgs.keyDecisions) ? actionArgs.keyDecisions.map(x => redactSecretsWithStats(String(x)).sanitized) : []);
+            const activeFiles = JSON.stringify(Array.isArray(actionArgs.activeFiles) ? actionArgs.activeFiles.map(x => redactSecretsWithStats(String(x)).sanitized) : []);
+            const pendingTasks = JSON.stringify(Array.isArray(actionArgs.pendingTasks) ? actionArgs.pendingTasks.map(x => redactSecretsWithStats(String(x)).sanitized) : []);
+            const rawContext = actionArgs.rawContext ? redactSecretsWithStats(String(actionArgs.rawContext).slice(0, 5000)).sanitized : null;
+            const ttlHours = Math.max(1, Math.min(168, parseInt(actionArgs.ttlHours, 10) || 24));
+            const expiresAt = now + (ttlHours * 3600 * 1000);
+            const tokenCount = Math.ceil((title.length + summary.length + keyDecisions.length + activeFiles.length + pendingTasks.length) / 3.5);
+            db.prepare(\`
+              INSERT INTO session_handoffs (handle, title, summary, key_decisions, active_files, pending_tasks, raw_context, token_count, created_at, expires_at, status)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')
+            \`).run(handle, title, summary, keyDecisions, activeFiles, pendingTasks, rawContext, tokenCount, now, expiresAt);
+            console.log(JSON.stringify({ success: true, handle, title, tokenEstimate: tokenCount, expires_in: ttlHours + "h" }));
 
           } else if (rawAction === "session_resume" || rawAction === "resume") {
             const handle = actionArgs.handle;
-            const row = db.prepare("SELECT serialized_state, ttl_expires_at FROM session_handoffs WHERE handle = ? LIMIT 1").get(handle);
-            if (!row || row.ttl_expires_at < now) {
+            const row = db.prepare("SELECT * FROM session_handoffs WHERE handle = ? LIMIT 1").get(handle);
+            if (!row || row.expires_at < now) {
               console.log(JSON.stringify({ success: false, error: "Handoff handle expired or not found" }));
             } else {
-              console.log(JSON.stringify({ success: true, handle, state: JSON.parse(row.serialized_state) }));
+              db.prepare("UPDATE session_handoffs SET accessed_at = ?, access_count = access_count + 1 WHERE handle = ?").run(now, handle);
+              console.log(JSON.stringify({
+                success: true,
+                handle: row.handle,
+                title: row.title,
+                summary: row.summary,
+                keyDecisions: JSON.parse(row.key_decisions || '[]'),
+                activeFiles: JSON.parse(row.active_files || '[]'),
+                pendingTasks: JSON.parse(row.pending_tasks || '[]'),
+                rawContext: row.raw_context || null,
+                tokenEstimate: row.token_count,
+              }));
             }
           } else {
             console.log(JSON.stringify({ success: false, error: "Unknown memory action: " + rawAction }));
